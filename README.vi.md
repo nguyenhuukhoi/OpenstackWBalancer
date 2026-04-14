@@ -621,6 +621,102 @@ vẫn rebalance cluster,
 nhưng cho resource đang chịu áp lực thực tế cao hơn mức ưu tiên lớn hơn.
 ```
 
+#### Ví dụ trade-off cho `0.7 / 0.3`
+
+Hai số `0.7` và `0.3` là một lựa chọn policy.
+Chúng quyết định pressure mode sẽ cư xử giống một rebalancer nhiều hơn, hay giống một cơ chế ưu tiên theo pressure nhiều hơn.
+
+Bạn có thể hình dung các lựa chọn khác như sau:
+
+- `0.9 / 0.1`
+  - rất nghiêng về MAD
+  - pressure mode sẽ gần giống normal balancing hơn nhiều
+  - mức nóng chung của cluster chỉ ảnh hưởng nhẹ tới ưu tiên CPU hay RAM
+- `0.8 / 0.2`
+  - vẫn rất balance-first
+  - pressure có tác động, nhưng chỉ như một hiệu chỉnh nhỏ
+- `0.7 / 0.3`
+  - hành vi hiện tại
+  - balancing vẫn là mục tiêu chính, nhưng overall pressure ảnh hưởng rõ tới mức ưu tiên
+- `0.6 / 0.4`
+  - nhạy hơn với pressure
+  - ưu tiên CPU hay RAM có thể đổi nhanh hơn khi average của aggregate tăng
+- `0.5 / 0.5`
+  - nhấn mạnh đều giữa spread và average pressure
+  - pressure mode bắt đầu bớt giống balancing và giống general resource prioritization hơn
+
+Dưới đây là một ví dụ cụ thể:
+
+```text
+cpu_mean = 90
+ram_mean = 60
+cpu_mad = 4
+ram_mad = 8
+```
+
+Với `0.9 / 0.1`:
+
+```text
+cpu_signal = (4 * 0.9) + (90 * 0.1) = 12.6
+ram_signal = (8 * 0.9) + (60 * 0.1) = 13.2
+```
+
+Kết quả:
+
+- RAM vẫn thắng
+- CPU average dù rất cao vẫn chưa đủ để lật ưu tiên từ RAM MAD lớn hơn
+
+Với `0.7 / 0.3`:
+
+```text
+cpu_signal = (4 * 0.7) + (90 * 0.3) = 29.8
+ram_signal = (8 * 0.7) + (60 * 0.3) = 23.6
+```
+
+Kết quả:
+
+- CPU bây giờ thắng
+- overall CPU pressure đã đủ mạnh để tạo khác biệt
+
+Với `0.5 / 0.5`:
+
+```text
+cpu_signal = (4 * 0.5) + (90 * 0.5) = 47.0
+ram_signal = (8 * 0.5) + (60 * 0.5) = 34.0
+```
+
+Kết quả:
+
+- CPU thắng với khoảng cách còn lớn hơn
+- pressure mode trở nên bị chi phối nhiều hơn bởi mức nóng chung của cluster
+
+Vì vậy trade-off thực tế là:
+
+- hệ số MAD càng lớn -> hành vi càng bảo thủ, càng balance-first
+- hệ số mean càng lớn -> hành vi càng nhạy với pressure, càng heat-aware
+- `0.7 / 0.3` là điểm trung dung: vẫn còn mang bản chất balancing, nhưng không bỏ qua pressure thực tế của aggregate
+
+Vì sao không `0.5 / 0.5`?
+
+- Vì như vậy pressure mode sẽ dễ trôi sang kiểu hành vi "ưu tiên average pressure là chính".
+- Trong khi script này về bản chất vẫn là một balancer, không phải pure capacity-pressure solver.
+
+Vì sao không `0.9 / 0.1`?
+
+- Vì như vậy pressure mode sẽ quá giống normal MAD mode.
+- Nó sẽ gần như không phản ánh đủ việc aggregate đang nóng trên toàn cục.
+
+Vậy vì sao là `0.7 / 0.3`?
+
+- Nó vẫn thiên về balancing.
+- Nhưng nó có đủ độ nhạy với pressure thật để đổi ưu tiên CPU hay RAM khi aggregate đang nóng.
+
+Nói thẳng hơn:
+
+- đây là một policy choice, không phải scientific constant
+- đây là một giá trị mặc định hợp lý nếu bạn muốn hành vi bảo thủ
+- và hoàn toàn có thể tune lại theo thực tế cluster của bạn
+
 #### Vì sao không dùng chỉ MAD?
 
 Giả sử:
