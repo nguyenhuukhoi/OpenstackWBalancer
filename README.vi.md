@@ -29,9 +29,98 @@ Với mỗi aggregate được chọn, nó sẽ:
 
 Script chỉ thực hiện tối đa một migration cho mỗi aggregate trong mỗi lần chạy.
 
+## Yêu cầu
+
+Bạn cần:
+
+- Python 3
+- quyền truy cập OpenStack qua `openstacksdk`
+- một OpenStack cloud profile tên `openstack`
+- các Prometheus endpoint và metric có thể truy cập được từ máy chạy script
+
+Các package Python script dùng:
+
+- `openstacksdk`
+- `requests`
+- `python-dotenv`
+- `click`
+- `urllib3`
+
+Cài bằng package manager bạn muốn, ví dụ:
+
+```bash
+pip install openstacksdk requests python-dotenv click urllib3
+```
+
+## Yêu cầu OpenStack
+
+Script kết nối với:
+
+- cloud name: `openstack`
+- compute microversion: `2.87`
+
+Hãy chắc chắn môi trường của bạn có `clouds.yaml` hợp lệ hoặc cấu hình OpenStack tương đương, trong đó định nghĩa một cloud tên `openstack`.
+
+## Yêu cầu Prometheus
+
+Script cần dữ liệu Prometheus cho:
+
+- host CPU usage
+- host RAM usage
+- OpenStack placement allocation ratio
+- per-VM CPU usage
+- per-VM RAM usage
+
+Default query giả định có metric từ:
+
+- một job [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
+- một job [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
+- một job [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
+
+Script cũng kỳ vọng một số label cụ thể tồn tại trong kết quả Prometheus:
+
+- `alias` cho query usage ở mức host
+- `hostname` cho query allocation ratio
+- `instanceId` và `host` cho query per-VM
+
+Nếu bạn bật host-side VM RSS cho RAM impact scoring, RSS metric cũng phải expose:
+
+- `instanceId`
+- `host`
+
+Nếu metric name hoặc label của bạn khác, hãy override Prometheus query trong config file.
+
 ## Bắt đầu nhanh
 
 Hãy dùng các lệnh này trước nếu bạn muốn hiểu nhanh hoặc vận hành script ngay.
+
+Trước lần chạy đầu tiên, hãy chắc chắn:
+
+- OpenStack access hoạt động qua một cloud profile tên `openstack` trong `clouds.yaml` hoặc cơ chế auth tương đương.
+- Prometheus expose đúng các metric mà default query đang kỳ vọng từ:
+  - [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
+  - [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
+  - [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
+- Bạn có một file cấu hình kiểu dotenv cho script này. Theo mặc định script sẽ đọc:
+  - `/etc/loadleveller-secrets.conf`
+
+Ví dụ tối thiểu:
+
+```dotenv
+PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
+```
+
+Nếu file config nằm ở chỗ khác, truyền rõ bằng `--config`:
+
+```bash
+python wloadbalancer.py --config /path/to/loadleveller-secrets.conf --monitor-only
+```
+
+Luồng tiếp cận gợi ý cho user mới:
+
+1. Bắt đầu với `--monitor-only` để xác nhận OpenStack auth và Prometheus query hoạt động.
+2. Sau đó chạy `--dry-run --aggregate ...` để xem move được đề xuất một cách an toàn.
+3. Chỉ khi đó mới chạy lệnh migration interactive.
 
 Chỉ kiểm tra health, không thay đổi gì:
 
@@ -1489,67 +1578,6 @@ Nếu không dùng `--monitor-only` hoặc `--dry-run`, script sẽ:
 - và có thể gửi email alert.
 
 Dùng `-y` hoặc `--yes` để bỏ qua prompt xác nhận.
-
-## Yêu cầu
-
-Bạn cần:
-
-- Python 3
-- quyền truy cập OpenStack qua `openstacksdk`
-- một OpenStack cloud profile tên `openstack`
-- các Prometheus endpoint và metric có thể truy cập được từ máy chạy script
-
-Các package Python script dùng:
-
-- `openstacksdk`
-- `requests`
-- `python-dotenv`
-- `click`
-- `urllib3`
-
-Cài bằng package manager bạn muốn, ví dụ:
-
-```bash
-pip install openstacksdk requests python-dotenv click urllib3
-```
-
-## Yêu cầu OpenStack
-
-Script kết nối với:
-
-- cloud name: `openstack`
-- compute microversion: `2.87`
-
-Hãy chắc chắn môi trường của bạn có `clouds.yaml` hợp lệ hoặc cấu hình OpenStack tương đương, trong đó định nghĩa một cloud tên `openstack`.
-
-## Yêu cầu Prometheus
-
-Script cần dữ liệu Prometheus cho:
-
-- host CPU usage
-- host RAM usage
-- OpenStack placement allocation ratio
-- per-VM CPU usage
-- per-VM RAM usage
-
-Default query giả định có metric từ:
-
-- một node exporter job
-- một libvirt exporter job
-- một OpenStack exporter job
-
-Script cũng kỳ vọng một số label cụ thể tồn tại trong kết quả Prometheus:
-
-- `alias` cho query usage ở mức host
-- `hostname` cho query allocation ratio
-- `instanceId` và `host` cho query per-VM
-
-Nếu bạn bật host-side VM RSS cho RAM impact scoring, RSS metric cũng phải expose:
-
-- `instanceId`
-- `host`
-
-Nếu metric name hoặc label của bạn khác, hãy override Prometheus query trong config file.
 
 ## Cấu hình
 

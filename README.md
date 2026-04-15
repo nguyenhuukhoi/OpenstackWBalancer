@@ -29,9 +29,98 @@ For each selected aggregate, it:
 
 This script performs at most one migration per aggregate per run.
 
+## Requirements
+
+You need:
+
+- Python 3
+- Access to OpenStack via `openstacksdk`
+- A configured OpenStack cloud profile named `openstack`
+- Prometheus endpoints and metrics reachable from the host where the script runs
+
+Python packages used by the script:
+
+- `openstacksdk`
+- `requests`
+- `python-dotenv`
+- `click`
+- `urllib3`
+
+Install them with your preferred package manager, for example:
+
+```bash
+pip install openstacksdk requests python-dotenv click urllib3
+```
+
+## OpenStack Requirements
+
+The script connects using:
+
+- cloud name: `openstack`
+- compute microversion: `2.87`
+
+Make sure your environment has a valid `clouds.yaml` or equivalent OpenStack configuration that defines a cloud named `openstack`.
+
+## Prometheus Requirements
+
+The script expects Prometheus data for:
+
+- host CPU usage
+- host RAM usage
+- OpenStack placement allocation ratios
+- per-VM CPU usage
+- per-VM RAM usage
+
+The default queries assume the presence of metrics from:
+
+- a [Prometheus Node Exporter](https://github.com/prometheus/node_exporter) job
+- a [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter) job
+- an [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter) job
+
+The script also expects specific labels to exist in Prometheus results:
+
+- `alias` for host-level usage queries
+- `hostname` for allocation ratio queries
+- `instanceId` and `host` for per-VM queries
+
+If you enable host-side VM RSS for RAM impact scoring, the RSS metric must also expose:
+
+- `instanceId`
+- `host`
+
+If your metric names or labels differ, override the Prometheus queries in the config file.
+
 ## Quick Start
 
 Use these commands first if you want to understand or operate the script quickly.
+
+Before your first run, make sure:
+
+- OpenStack access works through a cloud profile named `openstack` in `clouds.yaml` or equivalent auth config.
+- Prometheus exposes the metrics expected by the default queries from:
+  - [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
+  - [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
+  - [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
+- You have a dotenv-style config file for this script. By default the script reads:
+  - `/etc/loadleveller-secrets.conf`
+
+Minimal example:
+
+```dotenv
+PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
+```
+
+If your file lives somewhere else, pass it explicitly:
+
+```bash
+python wloadbalancer.py --config /path/to/loadleveller-secrets.conf --monitor-only
+```
+
+Suggested first-contact flow for a new user:
+
+1. Start with `--monitor-only` to confirm OpenStack auth and Prometheus queries work.
+2. Then run `--dry-run --aggregate ...` to inspect the proposed move safely.
+3. Only then run the interactive migration command.
 
 Check health only, without changing anything:
 
@@ -1489,67 +1578,6 @@ Without `--monitor-only` or `--dry-run`, the script:
 - optionally sends email alerts.
 
 Use `-y` or `--yes` to skip the confirmation prompt.
-
-## Requirements
-
-You need:
-
-- Python 3
-- Access to OpenStack via `openstacksdk`
-- A configured OpenStack cloud profile named `openstack`
-- Prometheus endpoints and metrics reachable from the host where the script runs
-
-Python packages used by the script:
-
-- `openstacksdk`
-- `requests`
-- `python-dotenv`
-- `click`
-- `urllib3`
-
-Install them with your preferred package manager, for example:
-
-```bash
-pip install openstacksdk requests python-dotenv click urllib3
-```
-
-## OpenStack Requirements
-
-The script connects using:
-
-- cloud name: `openstack`
-- compute microversion: `2.87`
-
-Make sure your environment has a valid `clouds.yaml` or equivalent OpenStack configuration that defines a cloud named `openstack`.
-
-## Prometheus Requirements
-
-The script expects Prometheus data for:
-
-- host CPU usage
-- host RAM usage
-- OpenStack placement allocation ratios
-- per-VM CPU usage
-- per-VM RAM usage
-
-The default queries assume the presence of metrics from:
-
-- a node exporter job
-- a libvirt exporter job
-- an OpenStack exporter job
-
-The script also expects specific labels to exist in Prometheus results:
-
-- `alias` for host-level usage queries
-- `hostname` for allocation ratio queries
-- `instanceId` and `host` for per-VM queries
-
-If you enable host-side VM RSS for RAM impact scoring, the RSS metric must also expose:
-
-- `instanceId`
-- `host`
-
-If your metric names or labels differ, override the Prometheus queries in the config file.
 
 ## Configuration
 
