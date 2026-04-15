@@ -124,12 +124,7 @@ A VM move is considered only if all of the following are true:
 
 The script does not migrate just because a move is technically possible.
 
-It requires a minimum improvement:
-
-- In hotspot modes: a fixed minimum improvement floor is used.
-- In other modes: the threshold is proportional to the current weighted MAD.
-
-Default minimum improvement floor:
+It currently uses a fixed minimum improvement threshold for every mode:
 
 - `0.05`
 
@@ -195,7 +190,58 @@ Those values are then converted into host-level percentage impact for:
 - the source host
 - the destination host
 
+These two percentages can be different. The same VM load is divided by the source host's capacity when it leaves and by the destination host's capacity when it arrives, so heterogeneous hosts naturally produce different source and destination impact values.
+
 This is important because the script does not score a migration based only on VM flavor size. It scores the move using the VM's observed load.
+
+### Optional RAM impact source: guest RAM usage vs host-side RSS
+
+By default, the script estimates VM RAM impact from guest-visible RAM usage:
+
+- `real RAM moved = vm_ram_gb * vm_ram_pct`
+
+This is a reasonable default when guest RAM usage is a good proxy for how much RAM pressure the VM creates on the source host.
+
+However, some workloads keep a large cache footprint. In those cases:
+
+- guest RAM usage can look moderate
+- but the host-side `qemu` process may still hold much more resident memory
+
+That can make the default RAM impact estimate too small for balancing purposes.
+
+To handle that case, the script can optionally use:
+
+- `libvirt_domain_stat_memory_rss_bytes`
+
+When enabled, the script uses host-side RSS as the VM's `real_vm_ram` value for RAM impact scoring. This changes only how RAM impact is estimated. It does not change:
+
+- destination feasibility checks
+- improvement threshold logic
+- hotspot / pressure / MAD mode selection
+- candidate ranking flow
+
+In other words:
+
+- flavor RAM is still used to decide whether the destination can host the VM
+- RSS is used only to estimate how much RAM pressure moves with the VM
+
+This is usually the better choice when:
+
+- VMs have large cache-heavy workloads
+- host memory pressure matters more than guest-reported RAM usage
+- you have reliable `libvirt_domain_stat_memory_rss_bytes` metrics with `instanceId` and `host` labels
+
+The default model is still reasonable when:
+
+- guest RAM usage already reflects actual host pressure well enough
+- your libvirt exporter does not expose reliable RSS metrics
+- you want to stay with the most conservative existing behavior
+
+Quick decision guide:
+
+- Keep the default model if you mainly trust guest-visible RAM usage and want the original behavior.
+- Use `--use-vm-ram-rss` if you care about host-side memory pressure and some VMs keep large cache footprints.
+- Prefer RSS only after confirming that your libvirt exporter reports stable `instanceId` and `host` labels for `libvirt_domain_stat_memory_rss_bytes`.
 
 ### Step 4. Simulate each possible destination
 
@@ -313,7 +359,7 @@ ram_signal = 12.44
 total = 26.88
 ```
 
-Raw shares:
+Initial shares:
 
 ```text
 cpu_share = 14.44 / 26.88 = 0.537
@@ -818,7 +864,7 @@ Suppose:
 - `cpu_mad = 1`
 - `ram_mad = 9`
 
-Raw shares:
+Initial shares:
 
 ```text
 cpu_share = 1 / (1 + 9) = 0.10
@@ -1498,6 +1544,11 @@ The script also expects specific labels to exist in Prometheus results:
 - `hostname` for allocation ratio queries
 - `instanceId` and `host` for per-VM queries
 
+If you enable host-side VM RSS for RAM impact scoring, the RSS metric must also expose:
+
+- `instanceId`
+- `host`
+
 If your metric names or labels differ, override the Prometheus queries in the config file.
 
 ## Configuration
@@ -1515,6 +1566,7 @@ Supported environment variables:
 - `PROMETHEUS_QUERY_URL`
 - `PROMETHEUS_MEM_USED`
 - `PROMETHEUS_CPU_USED`
+- `PROMETHEUS_VM_RAM_RSS`
 - `PROMETHEUS_CPU_RATIO`
 - `PROMETHEUS_MEM_RATIO`
 - `ALERT_EMAIL_TO`
@@ -1540,6 +1592,18 @@ SMTP_USER=
 SMTP_PASSWORD=
 SMTP_STARTTLS=false
 ```
+
+Optional RSS query override:
+
+```dotenv
+PROMETHEUS_VM_RAM_RSS=avg_over_time(libvirt_domain_stat_memory_rss_bytes{job="Prod-Openstack-LibVirt-Exporter-DC11", host=~"__HOST_RE__"}[5m])
+```
+
+Notes:
+
+- Use `__HOST_RE__` as the placeholder for the aggregate host regex.
+- The metric value is expected to be in bytes.
+- If this variable is empty, the script keeps using the original guest-RAM-based RAM impact model unless `--use-vm-ram-rss` is enabled with the built-in default query.
 
 ## Files Written by the Script
 
@@ -1601,6 +1665,12 @@ Send email alerts for both successful and failed migrations:
 
 ```bash
 python wloadbalancer.py --aggregate my-compute-aggregate --send-all
+```
+
+Use host-side VM RSS for RAM impact scoring:
+
+```bash
+python wloadbalancer.py --dry-run --aggregate my-compute-aggregate --use-vm-ram-rss
 ```
 
 Disable server-group checks only if you fully understand the risk:

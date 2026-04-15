@@ -57,6 +57,12 @@ DEFAULT_PROMETHEUS_CPU_USED = (
 DEFAULT_PROMETHEUS_MEM_USED = (
     f'sort_desc(100 - ((avg_over_time(node_memory_MemAvailable_bytes{{job="{PROMETHEUS_NODE_JOB}"}}[5m]) * 100) / avg_over_time(node_memory_MemTotal_bytes{{job="{PROMETHEUS_NODE_JOB}"}}[5m])))'
 )
+# Optional query template for host-side VM RSS bytes. Use "__HOST_RE__" as the
+# placeholder for the aggregate host regex when overriding this value.
+DEFAULT_PROMETHEUS_VM_RAM_RSS = ""
+DEFAULT_PROMETHEUS_VM_RAM_RSS_ENABLED_QUERY = (
+    f'avg_over_time(libvirt_domain_stat_memory_rss_bytes{{job="{PROMETHEUS_LIBVIRT_JOB}", host=~"__HOST_RE__"}}[5m])'
+)
 DEFAULT_PROMETHEUS_CPU_RATIO = (
     f'openstack_placement_resource_allocation_ratio{{job="{PROMETHEUS_OPENSTACK_EXPORTER_JOB}",resourcetype="VCPU"}}'
 )
@@ -133,8 +139,10 @@ BestMove = namedtuple(
         "vm_id",
         "src_host",
         "dst_host",
-        "cpu_impact",
-        "ram_impact",
+        "cpu_impact_src",
+        "cpu_impact_dst",
+        "ram_impact_src",
+        "ram_impact_dst",
         "new_host_cpu",
         "new_host_ram",
         "real_vm_cores",
@@ -168,6 +176,7 @@ class LoadbalancerConfig:
         prometheus_query_url=PROMETHEUS_QUERY_URL,
         prometheus_query_mem_used=DEFAULT_PROMETHEUS_MEM_USED,
         prometheus_query_cpu_used=DEFAULT_PROMETHEUS_CPU_USED,
+        prometheus_query_vm_ram_rss=DEFAULT_PROMETHEUS_VM_RAM_RSS,
         prometheus_query_cpu_ratio=DEFAULT_PROMETHEUS_CPU_RATIO,
         prometheus_query_mem_ratio=DEFAULT_PROMETHEUS_MEM_RATIO,
         alert_email_to=None,
@@ -181,6 +190,7 @@ class LoadbalancerConfig:
         self.prometheus_query_url = prometheus_query_url
         self.prometheus_query_mem_used = prometheus_query_mem_used
         self.prometheus_query_cpu_used = prometheus_query_cpu_used
+        self.prometheus_query_vm_ram_rss = prometheus_query_vm_ram_rss
         self.prometheus_query_cpu_ratio = prometheus_query_cpu_ratio
         self.prometheus_query_mem_ratio = prometheus_query_mem_ratio
         self.alert_email_to = alert_email_to
@@ -198,6 +208,7 @@ class LoadbalancerConfig:
             prometheus_query_url=os.getenv("PROMETHEUS_QUERY_URL", PROMETHEUS_QUERY_URL),
             prometheus_query_mem_used=os.getenv("PROMETHEUS_MEM_USED", DEFAULT_PROMETHEUS_MEM_USED),
             prometheus_query_cpu_used=os.getenv("PROMETHEUS_CPU_USED", DEFAULT_PROMETHEUS_CPU_USED),
+            prometheus_query_vm_ram_rss=os.getenv("PROMETHEUS_VM_RAM_RSS", DEFAULT_PROMETHEUS_VM_RAM_RSS),
             prometheus_query_cpu_ratio=os.getenv("PROMETHEUS_CPU_RATIO", DEFAULT_PROMETHEUS_CPU_RATIO),
             prometheus_query_mem_ratio=os.getenv("PROMETHEUS_MEM_RATIO", DEFAULT_PROMETHEUS_MEM_RATIO),
             alert_email_to=os.getenv("ALERT_EMAIL_TO") or os.getenv("EMAIL_TO") or DEFAULT_ALERT_EMAIL_TO,
@@ -238,6 +249,12 @@ def format_migration_timestamp(value):
         return datetime.fromtimestamp(float(value)).strftime('%Y-%m-%d %H:%M:%S')
     except (TypeError, ValueError, OSError):
         return "n/a"
+
+
+def enable_default_vm_ram_rss_query(cfg):
+    """Enable the built-in VM RSS query unless a custom query is already set."""
+    if not cfg.prometheus_query_vm_ram_rss:
+        cfg.prometheus_query_vm_ram_rss = DEFAULT_PROMETHEUS_VM_RAM_RSS_ENABLED_QUERY
 
 
 def send_migration_alert_email(
@@ -884,7 +901,7 @@ def resolve_project_name(conn, project_id, project_cache=None):
     return project_name
 
 
-def build_vm_metric_queries(hosts_in_agg):
+def build_vm_metric_queries(hosts_in_agg, rss_query_template=None):
     """Build the aggregate-scoped Prometheus queries for VM CPU and RAM usage."""
     host_re = "|".join(hosts_in_agg)
     mem_query = (
@@ -895,7 +912,10 @@ def build_vm_metric_queries(hosts_in_agg):
         f'(irate(libvirt_domain_info_cpu_time_seconds_total{{job="{PROMETHEUS_LIBVIRT_JOB}", host=~"{host_re}"}}[5m]) '
         f'/ libvirt_domain_info_virtual_cpus{{job="{PROMETHEUS_LIBVIRT_JOB}", host=~"{host_re}"}}) * 100'
     )
-    return mem_query, cpu_query
+    rss_query = None
+    if rss_query_template:
+        rss_query = rss_query_template.replace("__HOST_RE__", host_re)
+    return mem_query, cpu_query, rss_query
 
 
 def get_default_vm_metadata(vm_id):
@@ -964,10 +984,14 @@ def group_vm_metrics_by_host(vm_metrics):
 
 def get_all_vm_metrics(cfg, hosts_in_agg):
     """Fetch per-VM CPU and RAM usage for the selected aggregate hosts."""
-    mem_query, cpu_query = build_vm_metric_queries(hosts_in_agg)
+    mem_query, cpu_query, rss_query = build_vm_metric_queries(
+        hosts_in_agg,
+        rss_query_template=cfg.prometheus_query_vm_ram_rss,
+    )
 
     mem_data = do_query(cfg.prometheus_query_url, mem_query)
     cpu_data = do_query(cfg.prometheus_query_url, cpu_query)
+    rss_data = do_query(cfg.prometheus_query_url, rss_query) if rss_query else None
 
     vm_metrics = {}
 
@@ -979,7 +1003,7 @@ def get_all_vm_metrics(cfg, hosts_in_agg):
             vm_id = entry["metric"].get("instanceId")
             host = entry["metric"].get("host")
             if vm_id and host:
-                vm_metrics.setdefault(vm_id, {"host": host, "cpu_pct": 0.0, "ram_pct": 0.0})
+                vm_metrics.setdefault(vm_id, {"host": host, "cpu_pct": 0.0, "ram_pct": 0.0, "ram_rss_gb": None})
                 vm_metrics[vm_id]["ram_pct"] = float(entry["value"][1])
 
         for entry in get_prometheus_result_rows(
@@ -989,8 +1013,20 @@ def get_all_vm_metrics(cfg, hosts_in_agg):
             vm_id = entry["metric"].get("instanceId")
             host = entry["metric"].get("host")
             if vm_id and host:
-                vm_metrics.setdefault(vm_id, {"host": host, "cpu_pct": 0.0, "ram_pct": 0.0})
+                vm_metrics.setdefault(vm_id, {"host": host, "cpu_pct": 0.0, "ram_pct": 0.0, "ram_rss_gb": None})
                 vm_metrics[vm_id]["cpu_pct"] = float(entry["value"][1])
+
+        if rss_data is not None:
+            for entry in get_prometheus_result_rows(
+                rss_data,
+                "Prometheus returned malformed VM memory RSS results",
+            ):
+                vm_id = entry["metric"].get("instanceId")
+                host = entry["metric"].get("host")
+                if vm_id and host:
+                    existing = vm_metrics.get(vm_id)
+                    if existing and existing.get("host") == host:
+                        existing["ram_rss_gb"] = float(entry["value"][1]) / (1024.0 ** 3)
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise PrometheusError(f"Prometheus returned malformed VM metric results: {e}")
 
@@ -1024,11 +1060,13 @@ def calculate_vm_scores(conn, host, cfg, server_cache=None, vm_metrics=None, pro
 
         cpu_pct = metric.get("cpu_pct", 0.0)
         ram_pct = metric.get("ram_pct", 0.0)
+        ram_rss_gb = metric.get("ram_rss_gb")
 
         vm_names[vm_id] = metadata["name"]
         vm_details[vm_id] = {
             "cpu_pct": cpu_pct,
             "ram_pct": ram_pct,
+            "ram_rss_gb": ram_rss_gb,
             "vcpus": metadata["vcpus"],
             "ram_gb": metadata["ram_gb"],
             "host": host,
@@ -1138,9 +1176,10 @@ def find_best_move(
         vm_cpu_pct = details.get("cpu_pct", 0.0)
         vm_ram_gb = details.get("ram_gb", 2.0)
         vm_ram_pct = details.get("ram_pct", 0.0)
+        vm_ram_rss_gb = details.get("ram_rss_gb")
 
         real_vm_cores = vcpus * (vm_cpu_pct / 100.0)
-        real_vm_ram = vm_ram_gb * (vm_ram_pct / 100.0)
+        real_vm_ram = vm_ram_rss_gb if vm_ram_rss_gb is not None else (vm_ram_gb * (vm_ram_pct / 100.0))
 
         for dst_host in hosts_in_agg:
             if dst_host == src_host:
@@ -1168,15 +1207,17 @@ def find_best_move(
                 if not is_server_group_move_compliant(vm_id, src_host, dst_host, vm_host_map, vm_to_groups):
                     continue
 
-            cpu_impact = (real_vm_cores / host_cores[src_host]) * 100
-            ram_impact = (real_vm_ram / host_ram[src_host]) * 100
+            cpu_impact_src = (real_vm_cores / host_cores[src_host]) * 100
+            cpu_impact_dst = (real_vm_cores / host_cores[dst_host]) * 100
+            ram_impact_src = (real_vm_ram / host_ram[src_host]) * 100
+            ram_impact_dst = (real_vm_ram / host_ram[dst_host]) * 100
 
             new_host_cpu = host_cpu_pct.copy()
             new_host_ram = host_ram_pct.copy()
-            new_host_cpu[src_host] -= cpu_impact
-            new_host_cpu[dst_host] += cpu_impact
-            new_host_ram[src_host] -= ram_impact
-            new_host_ram[dst_host] += ram_impact
+            new_host_cpu[src_host] -= cpu_impact_src
+            new_host_cpu[dst_host] += cpu_impact_dst
+            new_host_ram[src_host] -= ram_impact_src
+            new_host_ram[dst_host] += ram_impact_dst
 
             if mode in ("ram_hotspot", "ram_critical_hotspot", "cpu_hotspot"):
                 if not is_hotspot_guardrail_satisfied(
@@ -1195,8 +1236,10 @@ def find_best_move(
                     vm_id=vm_id,
                     src_host=src_host,
                     dst_host=dst_host,
-                    cpu_impact=cpu_impact,
-                    ram_impact=ram_impact,
+                    cpu_impact_src=cpu_impact_src,
+                    cpu_impact_dst=cpu_impact_dst,
+                    ram_impact_src=ram_impact_src,
+                    ram_impact_dst=ram_impact_dst,
                     new_host_cpu=new_host_cpu,
                     new_host_ram=new_host_ram,
                     real_vm_cores=real_vm_cores,
@@ -1417,10 +1460,8 @@ def compute_baseline_metrics(host_cpu_pct, host_ram_pct):
 
 
 def determine_improvement_threshold(mode, baseline_weighted_mad):
-    """Return the current dynamic threshold used to accept a move."""
-    if mode in ("ram_hotspot", "ram_critical_hotspot", "cpu_hotspot"):
-        return MIN_IMPROVEMENT_THRESHOLD
-    return max(MIN_IMPROVEMENT_THRESHOLD, baseline_weighted_mad * 0.05)
+    """Return the fixed improvement threshold used to accept a move."""
+    return MIN_IMPROVEMENT_THRESHOLD
 
 
 def search_best_move_for_state(
@@ -2162,7 +2203,14 @@ def print_move_details(state, migration_round):
         f"{best_move.real_vm_ram:.2f} real GB(flavor {best_move.vm_ram_gb:.2f} GB) — "
         f"Available {best_move.host_cpu_avail:.2f} real cores, {best_move.host_ram_avail:.2f} GB."
     )
-    print(f"   CPU impact: {best_move.cpu_impact:.2f}%  | RAM impact: {best_move.ram_impact:.2f}%")
+    print(
+        f"   CPU impact: src -{best_move.cpu_impact_src:.2f}% | "
+        f"dst +{best_move.cpu_impact_dst:.2f}%"
+    )
+    print(
+        f"   RAM impact: src -{best_move.ram_impact_src:.2f}% | "
+        f"dst +{best_move.ram_impact_dst:.2f}%"
+    )
     print(f"   Search scope: {state['search_scope']}")
     print(f"   New host CPU: {[f'{v:.2f}' for v in best_move.new_host_cpu.values()]}")
     print(f"   New host RAM: {[f'{v:.2f}' for v in best_move.new_host_ram.values()]}")
@@ -2592,6 +2640,11 @@ def monitor_by_aggregate(cfg, aggregate_names=None, enforce_server_groups=True):
     help="Disable server group (affinity/anti-affinity) checks. WARNING: may violate policies."
 )
 @click.option('-y', '--yes', 'assume_yes', is_flag=True, help="Skip y/n prompt and auto-approve migrations")
+@click.option(
+    '--use-vm-ram-rss',
+    is_flag=True,
+    help="Use libvirt_domain_stat_memory_rss_bytes to estimate host-side VM RAM impact",
+)
 @click.option('--send-all', is_flag=True, help="Send migration email alerts for success and errors")
 @click.option(
     '--send-error',
@@ -2618,6 +2671,7 @@ def main(
     aggregate,
     no_server_groups,
     assume_yes,
+    use_vm_ram_rss,
     send_all,
     send_error,
     cooldown_file,
@@ -2649,6 +2703,8 @@ def main(
         load_cooldown_state(COOLDOWN_STATE_FILE)
 
         cfg = LoadbalancerConfig.load_config(config)
+        if use_vm_ram_rss:
+            enable_default_vm_ram_rss_query(cfg)
         aggregate_names = list(aggregate) if aggregate else None
 
         if monitor_only:
