@@ -107,8 +107,8 @@ MIGRATION_RESULT_STUCK_ACTIVE = 'stuck_active'
 MIGRATION_RESULT_TIMEOUT = 'timeout'
 
 # Cooldown to prevent VM ping-pong migrations
-VM_COOLDOWN_SECONDS = 1800  # 30 minutes
-VM_FAILED_MOVE_COOLDOWN_SECONDS = 3600  # 60 minutes
+VM_COOLDOWN_SECONDS = 14400  # 4 hrs
+VM_FAILED_MOVE_COOLDOWN_SECONDS = 14400  # 4 hrs
 COOLDOWN_STATE_FILE = "/var/log/loadleveller_vm_cooldown.json"
 MIGRATION_EVENTS_FILE = "/var/log/loadleveller_migration_events.jsonl"
 VM_LAST_MOVED_AT = {}
