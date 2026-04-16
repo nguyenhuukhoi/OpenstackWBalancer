@@ -31,14 +31,10 @@ Script chỉ thực hiện tối đa một migration cho mỗi aggregate trong m
 
 ## Yêu cầu
 
-Bạn cần:
+- Python >= 3.10
+- OpenStack SDK (`openstacksdk`)
 
-- Python 3
-- quyền truy cập OpenStack qua `openstacksdk`
-- một OpenStack cloud profile tên `openstack`
-- các Prometheus endpoint và metric có thể truy cập được từ máy chạy script
-
-Các package Python script dùng:
+### Python Packages
 
 - `openstacksdk`
 - `requests`
@@ -46,99 +42,79 @@ Các package Python script dùng:
 - `click`
 - `urllib3`
 
-Cài bằng package manager bạn muốn, ví dụ:
+Cài:
 
-```bash
-pip install openstacksdk requests python-dotenv click urllib3
-```
+    pip install openstacksdk requests python-dotenv click urllib3
 
-## Yêu cầu OpenStack
+### OpenStack
 
-Script kết nối với:
-
-- cloud name: `openstack`
 - compute microversion: `2.87`
+- phải có quyền gọi OpenStack API với admin privileges
 
-Hãy chắc chắn môi trường của bạn có `clouds.yaml` hợp lệ hoặc cấu hình OpenStack tương đương, trong đó định nghĩa một cloud tên `openstack`.
+### Prometheus
 
-## Yêu cầu Prometheus
+- Prometheus endpoint phải truy cập được từ host chạy script
 
-Script cần dữ liệu Prometheus cho:
+**Required data:**
 
-- host CPU usage
-- host RAM usage
-- OpenStack placement allocation ratio
-- per-VM CPU usage
-- per-VM RAM usage
+- Host CPU usage
+- Host RAM usage
+- Placement allocation ratios
+- Per-VM CPU usage
+- Per-VM RAM usage
 
-Default query giả định có metric từ:
+**Expected metric sources:**
 
-- một job [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
-- một job [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
-- một job [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
+- [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
+- [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
+- [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
 
-Script cũng kỳ vọng một số label cụ thể tồn tại trong kết quả Prometheus:
+**Important:**
 
-- `alias` cho query usage ở mức host
-- `hostname` cho query allocation ratio
-- `instanceId` và `host` cho query per-VM
-
-Nếu bạn bật host-side VM RSS cho RAM impact scoring, RSS metric cũng phải expose:
-
-- `instanceId`
-- `host`
-
-Nếu metric name hoặc label của bạn khác, hãy override Prometheus query trong config file.
+- `alias` của host trong metric Node Exporter **phải khớp** với OpenStack compute hostname
 
 ## Bắt đầu nhanh
 
-Hãy dùng các lệnh này trước nếu bạn muốn hiểu nhanh hoặc vận hành script ngay.
+Nạp OpenStack admin credentials:
 
-Trước lần chạy đầu tiên, hãy chắc chắn:
+    . /path/to/admin.rc
 
-- OpenStack access hoạt động qua một cloud profile tên `openstack` trong `clouds.yaml` hoặc cơ chế auth tương đương.
-- Prometheus expose đúng các metric mà default query đang kỳ vọng từ:
-  - [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
-  - [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
-  - [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
-- Bạn có một file cấu hình kiểu dotenv cho script này. Theo mặc định script sẽ đọc:
-  - `/etc/loadleveller-secrets.conf`
+Tạo file config:
 
-Ví dụ tối thiểu:
+    nano /etc/wloadbalancer.conf
 
-```dotenv
-PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
-```
+Minimal config:
 
-Nếu file config nằm ở chỗ khác, truyền rõ bằng `--config`:
+    PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
+    PROMETHEUS_NODE_JOB=Prod-Openstack-Node-Exporter
+    PROMETHEUS_LIBVIRT_JOB=Prod-Openstack-LibVirt-Exporter
+    PROMETHEUS_OPENSTACK_EXPORTER_JOB=Prod-Openstack-Exporter
 
-```bash
-python wloadbalancer.py --config /path/to/loadleveller-secrets.conf --monitor-only
-```
+    # ALERT_EMAIL_TO=""
+    # ALERT_EMAIL_FROM=""
+    # SMTP_SERVER=""
+    # SMTP_PORT=25
+    # SMTP_USER=""
+    # SMTP_PASSWORD=""
+    # SMTP_STARTTLS=False
 
-Luồng tiếp cận gợi ý cho user mới:
+Chạy với custom config:
 
-1. Bắt đầu với `--monitor-only` để xác nhận OpenStack auth và Prometheus query hoạt động.
-2. Sau đó chạy `--dry-run --aggregate ...` để xem move được đề xuất một cách an toàn.
-3. Chỉ khi đó mới chạy lệnh migration interactive.
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --monitor-only
 
-Chỉ kiểm tra health, không thay đổi gì:
+### Workflow
 
-```bash
-python wloadbalancer.py --monitor-only
-```
+1. Chỉ kiểm tra:
 
-Xem migration được đề xuất mà không thực thi:
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --monitor-only
 
-```bash
-python wloadbalancer.py --dry-run --aggregate my-compute-aggregate
-```
+2. Xem trước:
 
-Chạy một migration ở chế độ interactive:
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --dry-run --aggregate <aggregate>
 
-```bash
-python wloadbalancer.py --aggregate my-compute-aggregate
-```
+3. Thực thi:
+
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --aggregate <aggregate>
 
 ## Cách đọc tài liệu này
 

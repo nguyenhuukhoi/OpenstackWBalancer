@@ -31,14 +31,10 @@ This script performs at most one migration per aggregate per run.
 
 ## Requirements
 
-You need:
+- Python >= 3.10
+- OpenStack SDK (`openstacksdk`)
 
-- Python 3
-- Access to OpenStack via `openstacksdk`
-- A configured OpenStack cloud profile named `openstack`
-- Prometheus endpoints and metrics reachable from the host where the script runs
-
-Python packages used by the script:
+### Python Packages
 
 - `openstacksdk`
 - `requests`
@@ -46,99 +42,79 @@ Python packages used by the script:
 - `click`
 - `urllib3`
 
-Install them with your preferred package manager, for example:
+Install:
 
-```bash
-pip install openstacksdk requests python-dotenv click urllib3
-```
+    pip install openstacksdk requests python-dotenv click urllib3
 
-## OpenStack Requirements
+### OpenStack
 
-The script connects using:
+- Compute microversion: `2.87`
+- Must be able to call OpenStack APIs with admin privileges
 
-- cloud name: `openstack`
-- compute microversion: `2.87`
+### Prometheus
 
-Make sure your environment has a valid `clouds.yaml` or equivalent OpenStack configuration that defines a cloud named `openstack`.
+- Prometheus endpoint reachable from this host
 
-## Prometheus Requirements
+**Required data:**
 
-The script expects Prometheus data for:
+- Host CPU usage
+- Host RAM usage
+- Placement allocation ratios
+- Per-VM CPU usage
+- Per-VM RAM usage
 
-- host CPU usage
-- host RAM usage
-- OpenStack placement allocation ratios
-- per-VM CPU usage
-- per-VM RAM usage
+**Expected metric sources:**
 
-The default queries assume the presence of metrics from:
+- [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
+- [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
+- [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
 
-- a [Prometheus Node Exporter](https://github.com/prometheus/node_exporter) job
-- a [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter) job
-- an [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter) job
+**Important:**
 
-The script also expects specific labels to exist in Prometheus results:
-
-- `alias` for host-level usage queries
-- `hostname` for allocation ratio queries
-- `instanceId` and `host` for per-VM queries
-
-If you enable host-side VM RSS for RAM impact scoring, the RSS metric must also expose:
-
-- `instanceId`
-- `host`
-
-If your metric names or labels differ, override the Prometheus queries in the config file.
+- Host `alias` in Node Exporter metrics **must match** the OpenStack compute hostname
 
 ## Quick Start
 
-Use these commands first if you want to understand or operate the script quickly.
+Load OpenStack admin credentials:
 
-Before your first run, make sure:
+    . /path/to/admin.rc
 
-- OpenStack access works through a cloud profile named `openstack` in `clouds.yaml` or equivalent auth config.
-- Prometheus exposes the metrics expected by the default queries from:
-  - [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
-  - [prometheus-libvirt-exporter](https://github.com/zhangjianweibj/prometheus-libvirt-exporter)
-  - [openstack-exporter](https://github.com/openstack-exporter/openstack-exporter)
-- You have a dotenv-style config file for this script. By default the script reads:
-  - `/etc/loadleveller-secrets.conf`
+Create config file:
 
-Minimal example:
+    nano /etc/wloadbalancer.conf
 
-```dotenv
-PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
-```
+Minimal config:
 
-If your file lives somewhere else, pass it explicitly:
+    PROMETHEUS_QUERY_URL=http://kprometheus.com:9090/api/v1/query
+    PROMETHEUS_NODE_JOB=Prod-Openstack-Node-Exporter
+    PROMETHEUS_LIBVIRT_JOB=Prod-Openstack-LibVirt-Exporter
+    PROMETHEUS_OPENSTACK_EXPORTER_JOB=Prod-Openstack-Exporter
 
-```bash
-python wloadbalancer.py --config /path/to/loadleveller-secrets.conf --monitor-only
-```
+    # ALERT_EMAIL_TO=""
+    # ALERT_EMAIL_FROM=""
+    # SMTP_SERVER=""
+    # SMTP_PORT=25
+    # SMTP_USER=""
+    # SMTP_PASSWORD=""
+    # SMTP_STARTTLS=False
 
-Suggested first-contact flow for a new user:
+Run with custom config:
 
-1. Start with `--monitor-only` to confirm OpenStack auth and Prometheus queries work.
-2. Then run `--dry-run --aggregate ...` to inspect the proposed move safely.
-3. Only then run the interactive migration command.
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --monitor-only
 
-Check health only, without changing anything:
+### Workflow
 
-```bash
-python wloadbalancer.py --monitor-only
-```
+1. Check only:
 
-Preview the proposed migration without executing it:
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --monitor-only
 
-```bash
-python wloadbalancer.py --dry-run --aggregate my-compute-aggregate
-```
+2. Preview:
 
-Run one migration interactively:
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --dry-run --aggregate <aggregate>
 
-```bash
-python wloadbalancer.py --aggregate my-compute-aggregate
-```
+3. Execute:
+
+    python wloadbalancer.py --config /etc/wloadbalancer.conf --aggregate <aggregate>
 
 ## How to Read This Document
 
