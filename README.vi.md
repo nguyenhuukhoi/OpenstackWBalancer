@@ -50,7 +50,7 @@ $VENV/bin/pip install --no-deps .
 $VENV/bin/pip install -c https://releases.openstack.org/constraints/upper/2026.1 openstacksdk python-openstackclient   # bạn tự chọn
 
 mkdir -p /etc/wbalancer && install -m 600 wbalancer.conf.example /etc/wbalancer/wbalancer.conf
-vi /etc/wbalancer/wbalancer.conf   # sửa PROMETHEUS_QUERY_URL và 2 tên job; các khóa khác là tùy chọn
+nano /etc/wbalancer/wbalancer.conf   # sửa PROMETHEUS_QUERY_URL và 2 tên job; các khóa khác là tùy chọn
 
 $VENV/bin/wbalancer --monitor-only                 # chỉ đọc trạng thái, exit 0-3
 $VENV/bin/wbalancer --dry-run -a my-aggregate      # in kế hoạch, không đổi gì
