@@ -54,6 +54,8 @@ nano /etc/wbalancer/wbalancer.conf   # sửa PROMETHEUS_QUERY_URL và 2 tên job
 
 $VENV/bin/wbalancer --monitor-only                 # chỉ đọc trạng thái, exit 0-3
 $VENV/bin/wbalancer --dry-run -a my-aggregate      # in kế hoạch, không đổi gì
+$VENV/bin/wbalancer -a my-aggregate                # chạy thật: hỏi xác nhận trước khi move
+$VENV/bin/wbalancer -a my-aggregate -y             # chạy thật, tự duyệt (cho cron); tối đa 1 move mỗi aggregate
 ```
 
 - **Credential:** cloud bất kỳ trong `clouds.yaml` (mặc định `openstack`; chọn cloud khác bằng `OS_CLOUD` hoặc `--os-cloud`), hoặc môi trường openrc với `--os-cloud envvars` (xem [hướng dẫn sử dụng](docs/user-guide.vi.md#4-cấu-hình)).

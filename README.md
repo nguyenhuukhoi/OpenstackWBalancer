@@ -54,6 +54,8 @@ nano /etc/wbalancer/wbalancer.conf   # set PROMETHEUS_QUERY_URL and the two job 
 
 $VENV/bin/wbalancer --monitor-only                 # read-only state, exit 0-3
 $VENV/bin/wbalancer --dry-run -a my-aggregate      # show the plan, change nothing
+$VENV/bin/wbalancer -a my-aggregate                # real run: asks for confirmation before moving
+$VENV/bin/wbalancer -a my-aggregate -y             # real run, auto-approve (for cron); max 1 move per aggregate
 ```
 
 - **Credentials:** any cloud from `clouds.yaml` (default `openstack`; choose another with `OS_CLOUD` or `--os-cloud`), or an openrc environment with `--os-cloud envvars` (see the [user guide](docs/user-guide.md#4-configuration)).
