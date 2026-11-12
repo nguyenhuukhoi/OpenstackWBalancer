@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """
+DEPRECATED — superseded by wbalancer v1 (the compute-maintenance package in
+this repository). This legacy script is kept for reference and existing cron
+jobs only; it receives no new features or fixes. Migration guide:
+docs/migrating-from-wloadbalancer.md
+
 OpenStack Workload Balancer — Automated VM migration to minimize MAD/spread.
 
 Refactored version:
@@ -2740,4 +2745,11 @@ def main(
 
 
 if __name__ == "__main__":
+    # Deprecation notice goes to stderr only, so cron/Icinga parsing of
+    # stdout and exit codes is unaffected.
+    print(
+        "wloadbalancer.py is DEPRECATED: use wbalancer v1 (compute-maintenance). "
+        "See docs/migrating-from-wloadbalancer.md",
+        file=sys.stderr,
+    )
     main()
