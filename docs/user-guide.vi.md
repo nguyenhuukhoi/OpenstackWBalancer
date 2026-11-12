@@ -60,11 +60,11 @@ Nếu thiếu label `alias` hoặc `host`, gắn nó ngay trong scrape config:
 
 Trên coordinator. Không cài chung venv với bản legacy.
 
-**Tool không tự cài `openstacksdk` và `python-openstackclient`.** Bạn tự cài hai gói này cho hợp với cloud của mình. Chuẩn đã kiểm định là **OpenStack 2026.1**: `openstacksdk` 4.10.0 và `python-openstackclient` 9.0.1, theo upper-constraints chính thức. Repo có sẵn file đó ở `constraints/openstack-2026.1.txt`.
+**Tool không tự cài `openstacksdk` và `python-openstackclient`.** Bạn tự cài hai gói này cho hợp với cloud của mình. Chuẩn đã kiểm định là **OpenStack 2026.1**: `openstacksdk` 4.10.0 và `python-openstackclient` 9.0.1, theo upper-constraints chính thức. Repo cũng kèm bản offline của file đó ở `constraints/openstack-2026.1.txt` (dùng khi regenerate lock file).
 
 ```bash
 git clone https://github.com/nguyenhuukhoi/OpenstackWBalancer.git && cd OpenstackWBalancer
-python3.12 -m venv /opt/wbalancer/venv
+python3 -m venv /opt/wbalancer/venv            # python3 phải là 3.12 (requires-python >=3.12,<3.13)
 VENV=/opt/wbalancer/venv
 
 # 1. Tool và các thư viện riêng của nó (đã khóa hash, cùng phiên bản với chuẩn 2026.1)
@@ -72,7 +72,7 @@ $VENV/bin/pip install --require-hashes -r requirements.lock.txt
 $VENV/bin/pip install --no-deps .
 
 # 2. Client OpenStack: bạn tự chọn và tự cài, cài vào CÙNG venv
-$VENV/bin/pip install -c constraints/openstack-2026.1.txt openstacksdk python-openstackclient
+$VENV/bin/pip install -c https://releases.openstack.org/constraints/upper/2026.1 openstacksdk python-openstackclient
 
 $VENV/bin/pip check
 $VENV/bin/wbalancer --help && $VENV/bin/rolling-maint --help

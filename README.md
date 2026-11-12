@@ -42,12 +42,12 @@ The full checklist, including PromQL queries to verify your metrics, is in the [
 
 ```bash
 git clone https://github.com/nguyenhuukhoi/OpenstackWBalancer.git && cd OpenstackWBalancer
-python3.12 -m venv /opt/wbalancer/venv
+python3 -m venv /opt/wbalancer/venv            # python3 must be 3.12 (requires-python >=3.12,<3.13)
 VENV=/opt/wbalancer/venv
 
 $VENV/bin/pip install --require-hashes -r requirements.lock.txt      # the tool's own pinned deps
 $VENV/bin/pip install --no-deps .
-$VENV/bin/pip install -c constraints/openstack-2026.1.txt openstacksdk python-openstackclient   # your choice
+$VENV/bin/pip install -c https://releases.openstack.org/constraints/upper/2026.1 openstacksdk python-openstackclient   # your choice
 
 mkdir -p /etc/wbalancer && install -m 600 wbalancer.conf.example /etc/wbalancer/wbalancer.conf
 vi /etc/wbalancer/wbalancer.conf   # set PROMETHEUS_QUERY_URL and the two job names; all other keys are optional

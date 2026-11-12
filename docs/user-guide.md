@@ -60,11 +60,11 @@ If the `alias` or `host` label is missing, attach it in the scrape config:
 
 On the coordinator. Do not share a venv with the legacy version.
 
-**The tool does not install `openstacksdk` and `python-openstackclient`.** Install these two packages yourself to match your cloud. The tested baseline is **OpenStack 2026.1**: `openstacksdk` 4.10.0 and `python-openstackclient` 9.0.1, from the official upper-constraints. The repository ships that file as `constraints/openstack-2026.1.txt`.
+**The tool does not install `openstacksdk` and `python-openstackclient`.** Install these two packages yourself to match your cloud. The tested baseline is **OpenStack 2026.1**: `openstacksdk` 4.10.0 and `python-openstackclient` 9.0.1, from the official upper-constraints. The repository also ships an offline copy of that file as `constraints/openstack-2026.1.txt` (used to regenerate the lock file).
 
 ```bash
 git clone https://github.com/nguyenhuukhoi/OpenstackWBalancer.git && cd OpenstackWBalancer
-python3.12 -m venv /opt/wbalancer/venv
+python3 -m venv /opt/wbalancer/venv            # python3 must be 3.12 (requires-python >=3.12,<3.13)
 VENV=/opt/wbalancer/venv
 
 # 1. The tool and its own libraries (hash-pinned, same versions as the 2026.1 baseline)
@@ -72,7 +72,7 @@ $VENV/bin/pip install --require-hashes -r requirements.lock.txt
 $VENV/bin/pip install --no-deps .
 
 # 2. OpenStack clients: you choose and install them, into the SAME venv
-$VENV/bin/pip install -c constraints/openstack-2026.1.txt openstacksdk python-openstackclient
+$VENV/bin/pip install -c https://releases.openstack.org/constraints/upper/2026.1 openstacksdk python-openstackclient
 
 $VENV/bin/pip check
 $VENV/bin/wbalancer --help && $VENV/bin/rolling-maint --help
