@@ -1,0 +1,36 @@
+schema_version: 1
+name: kernel-update
+description: Upgrade the approved package plan (not kernel-only), using pre-refreshed apt metadata
+reboot: if_required
+# Reboot (rc 0) when the package manager asks for it OR when a newer kernel
+# than the running one is installed in /boot. The second condition matters on
+# hosts without the update-notifier kernel hook: post_boot verifies the newest
+# installed kernel, so skipping that reboot would strand the host disabled.
+reboot_required_cmd: |-
+  test -f /var/run/reboot-required && exit 0
+  newest=$(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' | sed 's/^vmlinuz-//' | sort -V | tail -1)
+  test -n "$newest" || exit 2
+  test "$newest" != "$(uname -r)"
+settings:
+  boot_timeout: 3600
+hooks:
+  pre_drain:
+    - id: package-plan
+      script: scripts/package-plan.sh
+      capture: package_plan
+      timeout: 300
+      idempotency: idempotent
+  maintenance:
+    - id: dist-upgrade
+      script: scripts/dist-upgrade.sh
+      check: scripts/check-upgrade-result.sh
+      idempotency: reconcile
+      timeout: 3600
+    - id: kernel-target
+      script: scripts/kernel-target.sh
+      capture: expected_kernel
+      idempotency: idempotent
+  post_boot:
+    - id: verify-expected-kernel
+      script: scripts/kernel-verify.sh
+      idempotency: idempotent

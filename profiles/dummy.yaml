@@ -1,0 +1,14 @@
+# Intentionally skip before disable/drain. Empty hooks alone would still drain.
+# The runner still performs preflight reads and writes local logs/checkpoint.
+schema_version: 1
+name: dummy
+description: No host changes; skip before disable, drain, maintenance and reboot
+reboot: never
+hooks:
+  pre_drain:
+    - id: dummy-skip
+      name: Dummy - no work requested, skip host
+      run: local
+      cmd: exit 3
+      timeout: 10
+      idempotency: idempotent

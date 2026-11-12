@@ -1,0 +1,126 @@
+# wbalancer / rolling-maint configuration -- copy to /etc/wbalancer/wbalancer.conf
+#
+#   install -m 600 wbalancer.conf.example /etc/wbalancer/wbalancer.conf
+#
+# Format: KEY=VALUE (dotenv). An environment variable with the same name
+# overrides the value in this file. Lines starting with # are comments.
+# Commented keys show their built-in default; uncomment only what you change.
+# See docs/user-guide.md (section 4) and docs/algorithm.md for what each one does.
+
+# ---------------------------------------------------------------- required ---
+# Prometheus instant-query endpoint (must end with /api/v1/query).
+PROMETHEUS_QUERY_URL=http://prometheus.example:9090/api/v1/query
+# Job names of node_exporter (label "alias" = Nova host name) and of the libvirt
+# exporter (labels "host" = Nova host name, "instanceId" = VM UUID).
+PROMETHEUS_NODE_JOB=node
+PROMETHEUS_LIBVIRT_JOB=libvirt
+
+# ------------------------------------------------------------------- cloud ---
+# Cloud name in clouds.yaml; with an openrc environment use "envvars".
+# The environment variable OS_CLOUD overrides it, --os-cloud overrides both.
+# rolling-maint reads it from its --wlb-config and passes it to the drain step.
+#OS_CLOUD=openstack
+
+# -------------------------------------------------------------- thresholds ---
+# Host RAM/CPU (%) above which a host is a hotspot; RAM critical must be above RAM hotspot.
+#RAM_HOTSPOT_THRESHOLD=80
+#RAM_CRITICAL_THRESHOLD=95
+#CPU_HOTSPOT_THRESHOLD=70
+# Aggregate average (%) above which "pressure" mode is used. It only has an
+# effect when it is lower than RAM_HOTSPOT_THRESHOLD or CPU_HOTSPOT_THRESHOLD.
+#PRESSURE_THRESHOLD=80
+# Spread (MAD, percentage points) above which the aggregate counts as unbalanced.
+#TARGET_AVG_MAD=3
+# Minimum improvement (weighted MAD points) a direct move must bring.
+#MIN_IMPROVEMENT_THRESHOLD=0.15
+# Placement allocation (%) from which a host is reported as nearly full (report only).
+#PLACEMENT_PRESSURE_THRESHOLD=90
+#
+# The old wloadbalancer.py behaviour was:
+#   RAM_HOTSPOT_THRESHOLD=75, RAM_CRITICAL_THRESHOLD=85, CPU_HOTSPOT_THRESHOLD=85,
+#   MIN_IMPROVEMENT_THRESHOLD=0.05
+
+# ------------------------------------------------- waiting for a migration ---
+# Stop waiting once Nova reported no progress for MIGRATION_TIMEOUT seconds
+# (counted from the start or from the last progress), and never wait longer than
+# MIGRATION_MAX_WAIT in total (must be >= MIGRATION_TIMEOUT). Stopping to wait
+# does not abort the migration: the run stops, the next run reconciles the outcome.
+#MIGRATION_TIMEOUT=600
+#MIGRATION_MAX_WAIT=1800
+
+# ------------------------------------------------------- placement / limits ---
+# Keep this share (%) of Placement capacity free instead of packing hosts full.
+#PLACEMENT_VCPU_HEADROOM_PERCENT=5
+#PLACEMENT_RAM_HEADROOM_PERCENT=5
+# Maximum VMs per host: 0 = no limit; per-host override as a JSON object.
+#MAX_INSTANCES_PER_HOST_DEFAULT=0
+#MAX_INSTANCES_PER_HOST={"compute-01": 40}
+# Run a Placement allocation-candidates sanity check right before each submit.
+#PLACEMENT_FINAL_ALLOCATION_CANDIDATE_CHECK=false
+# How long MAKE_ROOM step 2 waits (seconds) for Placement to reflect step 1.
+#PLACEMENT_SYNC_TIMEOUT=30
+#PLACEMENT_SYNC_INTERVAL=2
+
+# --------------------------------------------------------------- make room ---
+# Two-step plans: move a small VM away to make room for a large one.
+#ENABLE_MAKE_ROOM=true
+# Default: 2 x MIN_IMPROVEMENT_THRESHOLD; must not be lower than it.
+#MAKE_ROOM_MIN_IMPROVEMENT=0.30
+# The VM moved away to make room must be lightly loaded: its own CPU use (% of
+# its vCPUs) and guest RAM use (%) at most these values.
+#MAKE_ROOM_MAX_VM_CPU_PERCENT=10
+#MAKE_ROOM_MAX_VM_RAM_PERCENT=50
+# Search budget (candidate evaluations per search).
+#PLANNER_CANDIDATE_BUDGET=100000
+
+# -------------------------------------------- soft-anti-affinity heal (rc11) ---
+# Re-spread a soft-anti-affinity server group that has 2+ members on one host
+# (e.g. after a drain or a failover): at most one heal move per aggregate and
+# run, only when no host is a hotspot, before normal MAD balancing. Also turns
+# on the soft-anti-affinity tie-breaks of balancing and drain.
+# false = exact rc10 behaviour (broken groups are only reported).
+#HEAL_SOFT_ANTI_AFFINITY=true
+# Heal gate (MAD points, absolute, >= 0), checked for CPU and RAM separately:
+# a MAD at or below TARGET_AVG_MAD must stay at or below it (balanced: CPU
+# 0 -> 1.67, RAM 0 -> 1.56 allowed; RAM 2.98 -> at most 3.00); a MAD already
+# above it may grow only by this much (RAM 3.50 -> at most 3.55).
+# Refused heals show "could not fix: ... mad_tolerance".
+#SOFT_AA_HEAL_MAD_TOLERANCE=0.05
+# Relative band (0..1): among balancing moves within 15% of the best
+# improvement, the one that removes the most soft-anti-affinity violations wins.
+#SOFT_AA_TIEBREAK_MARGIN=0.15
+
+# ---------------------------------------------------------- VMs to exclude ---
+# File with one VM UUID, exact name or name glob per line (# = comment).
+#EXCLUDE_VMS_FILE=/etc/wbalancer/exclude-vms.txt
+
+# ------------------------------------------------------------------- email ---
+# Alerts for wbalancer (--send-error / --send-all) and rolling-maint (--notify).
+# With a password set, keep this file mode 600.
+#ALERT_EMAIL_TO=ops@example.com,cloud@example.com
+#ALERT_EMAIL_FROM=wbalancer@example.com
+#SMTP_SERVER=smtp.example.com
+#SMTP_PORT=25
+#SMTP_USER=
+#SMTP_PASSWORD=
+#SMTP_STARTTLS=false
+
+# ------------------------------------------------------ advanced: queries ---
+# Built from the job names above by default; override only if your labels differ.
+# Custom queries must keep the raw exporter series the freshness check reads.
+# Keys (each takes a full PromQL expression, never leave one empty):
+#   PROMETHEUS_CPU_USED, PROMETHEUS_MEM_USED, PROMETHEUS_MEM_USED_INSTANT,
+#   PROMETHEUS_MEM_SAMPLE_TIMESTAMP, PROMETHEUS_LOGICAL_CPUS, PROMETHEUS_TOTAL_RAM_BYTES
+# Host-side VM RSS query (bytes, use __HOST_RE__ for the host regex); empty = off
+# unless --use-vm-ram-rss enables the built-in one.
+#PROMETHEUS_VM_RAM_RSS=avg_over_time(libvirt_domain_stat_memory_rss_bytes{job="libvirt", host=~"__HOST_RE__"}[5m])
+# CPU load added for a VM that just arrived decays over this window.
+# Exception to the rule above: 60 is NOT the default. Left unset, the window is
+# 2 x the node job's scrape interval read from Prometheus (30 s at 15 s
+# scrapes); 60 is only the fallback when that interval cannot be read.
+# Setting the key pins the window to the given value.
+#COMPENSATION_CPU_WINDOW_SECONDS=60
+
+# --------------------------------------------- environment variables only ---
+# RUNTIME_SETTLE_SECONDS (default 360) is read from the environment, not from
+# this file: export it in the cron/systemd unit if you need another value.

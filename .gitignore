@@ -1,0 +1,37 @@
+# Python / tooling
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build output (wheels are published as release assets, not committed)
+build/
+dist/
+
+# Local runs, evidence and backups
+*.log
+*.zip
+*.tgz
+*.tar
+*.tar.gz
+evidence/
+
+# Never commit credentials or site-specific runtime config/state
+.env
+*.env
+clouds.yaml
+secure.yaml
+*openrc*
+*.pem
+*.key
+*.keyring
+id_rsa*
+id_ed25519*
+wbalancer.conf
+loadleveller-secrets.conf

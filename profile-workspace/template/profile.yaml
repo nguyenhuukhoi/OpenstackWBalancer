@@ -1,0 +1,32 @@
+schema_version: 1
+name: custom-maintenance
+description: Replace with the change purpose and acceptance criteria
+reboot: if_required
+reboot_required_cmd: test -f /var/run/reboot-required
+settings:
+  boot_timeout: 3600
+  health_timeout: 1200
+  settle: 300
+hooks:
+  pre_drain:
+    - id: readiness
+      name: Validate prerequisites and determine whether work is needed
+      script: scripts/readiness.sh
+      run: ssh
+      timeout: 120
+      idempotency: idempotent
+  maintenance:
+    - id: apply-change
+      name: Apply the approved change
+      script: scripts/apply.sh
+      check: scripts/check.sh
+      run: ssh
+      timeout: 1800
+      idempotency: reconcile
+  post_boot:
+    - id: verify-change
+      name: Verify the expected result before enabling compute
+      script: scripts/verify.sh
+      run: ssh
+      timeout: 120
+      idempotency: idempotent

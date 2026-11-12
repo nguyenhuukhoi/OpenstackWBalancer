@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=75,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "compute-maintenance"
+version = "1.0.0rc13"
+description = "Single-coordinator OpenStack balancing and rolling maintenance"
+requires-python = ">=3.12,<3.13"
+# openstacksdk and python-openstackclient are intentionally NOT dependencies:
+# the operator installs them to match the cloud. Tested baseline: OpenStack
+# 2026.1 upper-constraints (openstacksdk 4.10.0, python-openstackclient 9.0.1):
+#   pip install -c https://releases.openstack.org/constraints/upper/2026.1 \
+#       openstacksdk python-openstackclient
+# The CLIs check for them at start-up (compute_maintenance.dependencies).
+dependencies = [
+  "click>=8.1,<9", "python-dotenv>=1.0,<2", "requests>=2.32,<3",
+  "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "ruff>=0.14,<1", "build>=1,<2"]
+
+[dependency-groups]
+# Development/test only (never part of the package metadata): run the suite
+# against the OpenStack 2026.1 baseline the tool is verified with.
+dev = ["openstacksdk==4.10.0", "python-openstackclient==9.0.1"]
+
+[project.scripts]
+wbalancer = "compute_maintenance.cli.entry:balance"
+rolling-maint = "compute_maintenance.cli.entry:maintain"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"share/compute-maintenance/profiles" = ["profiles/*.yaml"]
+"share/compute-maintenance/profiles/scripts" = ["profiles/scripts/*.sh"]
+
+[tool.pytest.ini_options]
+testpaths = ["test_maintenance_safety.py", "wlbalancer_tests/test_wlbalancer.py", "tests"]
+norecursedirs = ["evidence"]
+
+[tool.ruff.lint]
+# `ruff check src tests` must stay at zero. Everything else is fixed or carries
+# a per-line `# noqa: RULE - reason`; only rules that do not fit this codebase
+# are ignored here, one line of reason each.
+ignore = [
+  "LOG015",  # root logger by design: wbalancer configures root, rolling-maint relies on its implicit basicConfig; module loggers would change operator-visible output
+]

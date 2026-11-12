@@ -1,0 +1,10 @@
+# Drain all live-migratable workloads from a compute host, reboot it, run the
+# standard rolling-maint health gate, then return it to service.
+#
+# This profile intentionally has no maintenance hooks. All safety checks,
+# drain planning, reboot verification, health settling, and nova-compute
+# restore are provided by rolling_maint.py's fixed workflow.
+name: drain-reboot
+description: Drain a compute host, reboot it, verify health, and restore service
+reboot: always
+

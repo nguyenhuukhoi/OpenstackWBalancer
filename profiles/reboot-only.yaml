@@ -1,0 +1,17 @@
+schema_version: 1
+name: reboot-only
+description: Reboot to the pre-validated and checkpointed installed kernel
+reboot: always
+hooks:
+  pre_drain:
+    - id: kernel-needed
+      script: scripts/kernel-needed.sh
+      idempotency: idempotent
+    - id: kernel-target
+      script: scripts/kernel-target.sh
+      capture: expected_kernel
+      idempotency: idempotent
+  post_boot:
+    - id: verify-expected-kernel
+      script: scripts/kernel-verify.sh
+      idempotency: idempotent
